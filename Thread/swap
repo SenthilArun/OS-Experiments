@@ -1,0 +1,68 @@
+#include <iostream>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <queue>
+#include <chrono>
+using namespace std;
+
+template<typename T>
+class BlockingQueue {
+public:
+    BlockingQueue(int cap) :capacity(cap) {
+
+    }
+    void push(const T& data) {
+        unique_lock<mutex> lock(m);
+        until_not_full.wait(lock, [&] { return q.size() < capacity;});
+        q.push(data);
+        until_not_empty.notify_one();
+    }
+
+    T pop() {
+        unique_lock<mutex> lock(m);
+        until_not_empty.wait(lock, [&] {return !q.empty();});
+        T item = q.front();
+        q.pop();
+        until_not_full.notify_one();
+        return item;
+    }
+private:
+    queue<T> q;
+    condition_variable until_not_full, until_not_empty;
+    mutex m;
+    int capacity;
+
+};
+
+
+
+void producer(BlockingQueue<int>& q, int count) {
+    for (int i = 1; i <= count; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));  // simulate work
+        q.push(i);
+        std::cout << "Produced: " << i << "\n";
+    }
+}
+
+void consumer(BlockingQueue<int>& q, int count) {
+    for (int i = 1; i <= count; ++i) {
+        int item = q.pop();
+        std::cout << "Consumed: " << item << "\n";
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));  // simulate work
+    }
+}
+
+int main() {
+    const int itemCount = 10;
+    BlockingQueue<int> queue(5);  // capacity of 5
+
+    std::thread prodThread(producer, std::ref(queue), itemCount);
+    std::thread consThread(consumer, std::ref(queue), itemCount);
+
+    prodThread.join();
+    consThread.join();
+
+    std::cout << "All items produced and consumed.\n";
+    return 0;
+}

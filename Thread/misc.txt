@@ -1,0 +1,160 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+typedef struct {
+    uint8_t *data;    // buffer
+    size_t head;      // next write index
+    size_t tail;      // next read index
+    size_t count;     // number of elements stored
+    size_t capacity;  // maximum number of elements
+} CQueue;
+
+/**
+ * Create a new circular queue with given capacity.
+ * Returns NULL on allocation failure.
+ */
+CQueue *cq_create(size_t capacity) {
+    CQueue *q = malloc(sizeof *q);
+    if (!q) return NULL;
+    q->data = malloc(capacity * sizeof *q->data);
+    if (!q->data) {
+        free(q);
+        return NULL;
+    }
+    q->head     = 0;
+    q->tail     = 0;
+    q->count    = 0;
+    q->capacity = capacity;
+    return q;
+}
+
+/** Free all memory associated with the queue. */
+void cq_free(CQueue *q) {
+    if (!q) return;
+    free(q->data);
+    free(q);
+}
+
+/** Returns true if the queue is empty. */
+bool cq_is_empty(const CQueue *q) {
+    return q->count == 0;
+}
+
+/** Returns true if the queue is full. */
+bool cq_is_full(const CQueue *q) {
+    return q->count == q->capacity;
+}
+
+/**
+ * Enqueue an item.
+ * Returns true on success, false if the queue is full.
+ */
+bool cq_enqueue(CQueue *q, uint8_t item) {
+    if (cq_is_full(q)) {
+        // queue full
+        return false;
+    }
+    q->data[q->head] = item;
+    q->head = (q->head + 1) % q->capacity;
+    q->count++;
+    return true;
+}
+
+/**
+ * Dequeue an item.
+ * Returns true on success (and writes to *item), false if empty.
+ */
+bool cq_dequeue(CQueue *q, uint8_t *item) {
+    if (cq_is_empty(q)) {
+        // queue empty
+        return false;
+    }
+    *item = q->data[q->tail];
+    q->tail = (q->tail + 1) % q->capacity;
+    q->count--;
+    return true;
+}
+
+/**
+ * Peek at the next item to be dequeued without removing it.
+ * Returns true on success, false if empty.
+ */
+bool cq_peek(const CQueue *q, uint8_t *item) {
+    if (cq_is_empty(q)) {
+        return false;
+    }
+    *item = q->data[q->tail];
+    return true;
+}
+
+int main(void) {
+    CQueue *q = cq_create(10);
+    if (!q) {
+        fprintf(stderr, "Failed to create queue\n");
+        return EXIT_FAILURE;
+    }
+
+    // Enqueue 1..7
+    for (uint8_t v = 1; v <= 7; v++) {
+        if (!cq_enqueue(q, v)) {
+            printf("Queue becomes full at value %u\n", v);
+            break;
+        }
+    }
+
+    // Dequeue three items
+    for (int i = 0; i < 3; i++) {
+        uint8_t v;
+        if (cq_dequeue(q, &v))
+            printf("Dequeued: %u\n", v);
+        else
+            printf("Queue is empty\n");
+    }
+
+    // Peek at next element
+    uint8_t next;
+    if (cq_peek(q, &next))
+        printf("Next item to dequeue (peek): %u\n", next);
+    else
+        printf("Nothing to peek; queue is empty\n");
+
+    cq_free(q);
+    return EXIT_SUCCESS;
+}
+------------------------------------------------------------
+#ifdef own
+    // Thread-safe bounded queue
+    template<typename T>
+    class BlockingQueue {
+    public:
+        BlockingQueue(size_t capacity) : capacity_(capacity) {}
+
+        // Push an item; blocks if queue is full
+        void push(const T& item) {
+            std::unique_lock<std::mutex> lock(mtx_);
+            cond_not_full_.wait(lock, [&] { return queue_.size() < capacity_; });
+            queue_.push(item);
+            cond_not_empty_.notify_one();
+        }
+
+        // Pop an item; blocks if queue is empty
+        T pop() {
+            std::unique_lock<std::mutex> lock(mtx_);
+            cond_not_empty_.wait(lock, [&] { return !queue_.empty(); });
+            T item = queue_.front();
+            queue_.pop();
+            cond_not_full_.notify_one();
+            return item;
+        }
+
+    private:
+        std::mutex mtx_;
+        std::condition_variable cond_not_empty_, cond_not_full_;
+        std::queue<T> queue_;
+        size_t capacity_;
+    };
+
+
+#endif
